@@ -1,0 +1,166 @@
+# =============================================================================
+# Cloud Build Pipeline — Build, Push & Deploy to Cloud Run
+# =============================================================================
+# Usage (same project as the Cloud Build trigger):
+#   gcloud builds submit \
+#     --config=cloudbuild.yaml \
+#     --substitutions=_ENV=p,_NAME=python-demoapp
+#
+# Usage (deploy to a DIFFERENT project — set _DEPLOY_PROJECT):
+#   gcloud builds submit \
+#     --config=cloudbuild.yaml \
+#     --substitutions=_ENV=p,_NAME=python-demoapp,_DEPLOY_PROJECT=my-other-project
+#
+# NOTE on $PROJECT_ID vs _DEPLOY_PROJECT:
+#   $PROJECT_ID is a Cloud Build built-in that always resolves to the project
+#   that owns the trigger / build. It CANNOT be overridden from the substitutions
+#   block (values there are static strings, never expanded). Use _DEPLOY_PROJECT
+#   to target a different project for the Cloud Run deployment.
+#
+# Environment short-codes:
+#   p = production | u = uat | d = development
+# =============================================================================
+
+substitutions:
+  # ---------------------------------------------------------------------------
+  # Required — override at trigger or submit time
+  # ---------------------------------------------------------------------------
+
+  # Short environment code: p (production), u (uat), d (development)
+  _ENV: "d"
+
+  # Application / service name (used to compose the Cloud Run service name)
+  _NAME: "python-demoapp"
+
+  # ---------------------------------------------------------------------------
+  # Cross-project deployment (optional)
+  # Default is empty — the pipeline uses $PROJECT_ID (build project).
+  # Set to a different project ID to deploy Cloud Run there.
+  # ---------------------------------------------------------------------------
+  _DEPLOY_PROJECT: ""
+
+  # ---------------------------------------------------------------------------
+  # Infrastructure — region, Artifact Registry, service accounts, KMS
+  # ---------------------------------------------------------------------------
+
+  # GCP region for Artifact Registry and Cloud Run
+  _REGION: "us-west1"
+
+  # Artifact Registry repository name (the repo, not the full hostname)
+  _AR_REPO: "docker-repo"
+
+  # Cloud Run runtime service account (full email).
+  # Replace the placeholder with the actual service account for your project.
+  _RUNTIME_SA: "cloudrun-runtime-sa@PROJECT_PLACEHOLDER.iam.gserviceaccount.com"
+
+  # GCP project that owns the KMS key ring (often a shared "tools" project).
+  # Replace the placeholder with the actual tools project ID.
+  _TOOLS_PROJECT_ID: "tools-project-placeholder"
+
+  # KMS key ring name used to encrypt images stored in Artifact Registry
+  _KMS_KEY_RING: "artifact-registry-keyring"
+
+  # ---------------------------------------------------------------------------
+  # Cloud Run service sizing
+  # ---------------------------------------------------------------------------
+  _MEMORY: "128Mi"
+  _CPU: "1"
+  _MIN_INSTANCES: "0"
+  _MAX_INSTANCES: "10"
+  _CONCURRENCY: "80"
+
+options:
+  # Stream build logs to Cloud Logging only (no GCS bucket required)
+  logging: CLOUD_LOGGING_ONLY
+
+  # Allow the build to proceed even if optional substitutions are not provided
+  # substitution_option: ALLOW_LOOSE
+
+  # Optionally pin a specific Cloud Build worker pool. Uncomment to enable.
+  # worker_pool: "projects/$PROJECT_ID/locations/${_REGION}/workerPools/my-pool"
+
+# =============================================================================
+# Build steps
+# =============================================================================
+steps:
+  # ---------------------------------------------------------------------------
+  # Step 1 — Build Docker image
+  # Tags the image with both the immutable commit SHA and the mutable "latest"
+  # so that cache-from can reuse layer cache on subsequent runs.
+  # $PROJECT_ID is the Cloud Build built-in for the current build project.
+  # ---------------------------------------------------------------------------
+  - id: "build"
+    name: "gcr.io/cloud-builders/docker"
+    env:
+      - "PROJECT_ID=$PROJECT_ID"
+    args:
+      - "build"
+      - "--file=Dockerfile"
+      - "--tag=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/cfn-${_ENV}-${_NAME}:$SHORT_SHA"
+      - "--tag=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/cfn-${_ENV}-${_NAME}:latest"
+      # Warm the layer cache from the previous "latest" image when available
+      - "--cache-from=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/cfn-${_ENV}-${_NAME}:latest"
+      - "."
+
+  # ---------------------------------------------------------------------------
+  # Step 2 — Push both tags to Artifact Registry
+  # ---------------------------------------------------------------------------
+  - id: "push"
+    name: "gcr.io/cloud-builders/docker"
+    env:
+      - "PROJECT_ID=$PROJECT_ID"
+    args:
+      - "push"
+      - "--all-tags"
+      - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/cfn-${_ENV}-${_NAME}"
+    waitFor:
+      - "build"
+
+  # ---------------------------------------------------------------------------
+  # Step 3 — Deploy to Cloud Run
+  #
+  # Changes from the original template:
+  #   - --ingress=internal  (replaces the invalid --ingress-settings=internal-only)
+  #   - --encryption-key    (replaces the Cloud-Functions-only --kms-key flag)
+  #   - --docker-repository removed (not a valid flag for gcloud run deploy)
+  #   - --memory uses binary SI unit "Mi" (not "MiB")
+  #   - Removed Cloud-Functions-only flags: --runtime, --entry-point,
+  #     --stage-bucket, --gen2, --trigger-*, --source, --build-service-account
+  #
+  # For cross-project deploys set _DEPLOY_PROJECT at submit time; the
+  # --project flag below passes it through to gcloud.
+  # ---------------------------------------------------------------------------
+  - id: "deploy"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    env:
+      - "PROJECT_ID=$PROJECT_ID"
+      - "DEPLOY_PROJECT=${_DEPLOY_PROJECT}"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        # Resolve the target project: use _DEPLOY_PROJECT if set, else $PROJECT_ID
+        TARGET_PROJECT="${_DEPLOY_PROJECT:-$PROJECT_ID}"
+
+        gcloud run deploy "cfn-${_ENV}-${_NAME}" \
+          --image="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/cfn-${_ENV}-${_NAME}:$SHORT_SHA" \
+          --project="$${TARGET_PROJECT}" \
+          --region="${_REGION}" \
+          --no-allow-unauthenticated \
+          --ingress=internal \
+          --service-account="${_RUNTIME_SA}" \
+          --encryption-key="projects/${_TOOLS_PROJECT_ID}/locations/${_REGION}/keyRings/${_KMS_KEY_RING}/cryptoKeys/ArtifactRegistry-${_REGION}" \
+          --memory="${_MEMORY}" \
+          --cpu="${_CPU}" \
+          --min-instances="${_MIN_INSTANCES}" \
+          --max-instances="${_MAX_INSTANCES}" \
+          --concurrency="${_CONCURRENCY}"
+    waitFor:
+      - "push"
+
+# =============================================================================
+# Publish final image digests back to Cloud Build for audit / promotion
+# =============================================================================
+images:
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/cfn-${_ENV}-${_NAME}:$SHORT_SHA"
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/cfn-${_ENV}-${_NAME}:latest"
