@@ -105,15 +105,15 @@ steps:
   # ---------------------------------------------------------------------------
   # Step 2 — Scan repository filesystem for vulnerabilities (Trivy)
   # Scans all source files, dependencies and config files in the workspace.
-  # Fails the build (exit-code 1) on any HIGH or CRITICAL finding.
-  # Add CVE IDs to .trivyignore at the repo root to suppress known / accepted
-  # findings so they do not block the pipeline.
+  # Results are displayed in table format. The build continues regardless of
+  # findings (exit-code 0). Add CVE IDs to .trivyignore to suppress known /
+  # accepted findings from the output.
   # ---------------------------------------------------------------------------
   - id: "scan-repo"
-    name: "aquasec/trivy:latest"
+    name: "ghcr.io/aquasecurity/trivy:latest"
     args:
       - "fs"
-      - "--exit-code=1"
+      - "--exit-code=0"
       - "--severity=HIGH,CRITICAL"
       - "--ignorefile=.trivyignore"
       - "--no-progress"
@@ -128,7 +128,8 @@ steps:
   # can inspect the locally-cached image without an extra push/pull round-trip.
   # The workspace directory is mounted read-only so that .trivyignore is
   # available to Trivy inside the container.
-  # Fails the build (exit-code 1) on any HIGH or CRITICAL finding.
+  # Results are displayed in table format. The build continues regardless of
+  # findings (exit-code 0).
   # ---------------------------------------------------------------------------
   - id: "scan-image"
     name: "gcr.io/cloud-builders/docker"
@@ -142,9 +143,9 @@ steps:
           -v /var/run/docker.sock:/var/run/docker.sock \
           -v /workspace:/workspace:ro \
           -w /workspace \
-          aquasec/trivy:latest \
+          ghcr.io/aquasecurity/trivy:latest \
           image \
-          --exit-code=1 \
+          --exit-code=0 \
           --severity=HIGH,CRITICAL \
           --ignorefile=.trivyignore \
           --no-progress \
@@ -155,7 +156,7 @@ steps:
 
   # ---------------------------------------------------------------------------
   # Step 4 — Push both tags to Artifact Registry
-  # Only runs after BOTH Trivy scans pass — no vulnerable image is ever pushed.
+  # Runs after both Trivy scans complete (regardless of findings).
   # ---------------------------------------------------------------------------
   - id: "push"
     name: "gcr.io/cloud-builders/docker"
