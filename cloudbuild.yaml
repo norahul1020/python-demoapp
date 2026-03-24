@@ -194,7 +194,7 @@ steps:
       - "-c"
       - |
         # Resolve the target project: use DEPLOY_PROJECT if set, else PROJECT_ID
-        TARGET_PROJECT="${DEPLOY_PROJECT}"
+        TARGET_PROJECT="${_DEPLOY_PROJECT}"
         if [[ -z "$TARGET_PROJECT" ]]; then
           TARGET_PROJECT="$PROJECT_ID"
         fi
