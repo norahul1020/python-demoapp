@@ -194,14 +194,14 @@ steps:
       - "-c"
       - |
         # Resolve the target project: use DEPLOY_PROJECT if set, else PROJECT_ID
-        TARGET_PROJECT="${_DEPLOY_PROJECT}"
-        if [[ -z "$TARGET_PROJECT" ]]; then
-          TARGET_PROJECT="$PROJECT_ID"
+        _TARGET_PROJECT="${_DEPLOY_PROJECT}"
+        if [[ -z "$_TARGET_PROJECT" ]]; then
+          _TARGET_PROJECT="$PROJECT_ID"
         fi
 
         gcloud run deploy "cfn-${_ENV}-${_NAME}" \
           --image="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/cfn-${_ENV}-${_NAME}:$SHORT_SHA" \
-          --project="$TARGET_PROJECT" \
+          --project="$_TARGET_PROJECT" \
           --region="${_REGION}" \
           --service-account="${_RUNTIME_SA}" \
           --memory="${_MEMORY}" \
