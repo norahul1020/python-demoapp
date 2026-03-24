@@ -27,7 +27,7 @@ substitutions:
   # ---------------------------------------------------------------------------
 
   # Short environment code: p (production), u (uat), d (development)
-  _ENV: "d"
+  _ENV: "dev"
 
   # Application / service name (used to compose the Cloud Run service name)
   _NAME: "python-demoapp"
@@ -146,10 +146,10 @@ steps:
           --image="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/cfn-${_ENV}-${_NAME}:$SHORT_SHA" \
           --project="$${TARGET_PROJECT}" \
           --region="${_REGION}" \
-          --no-allow-unauthenticated \
-          --ingress=internal \
+          # --no-allow-unauthenticated \
+          # --ingress=internal \
           --service-account="${_RUNTIME_SA}" \
-          --encryption-key="projects/${_TOOLS_PROJECT_ID}/locations/${_REGION}/keyRings/${_KMS_KEY_RING}/cryptoKeys/ArtifactRegistry-${_REGION}" \
+          # --encryption-key="projects/${_TOOLS_PROJECT_ID}/locations/${_REGION}/keyRings/${_KMS_KEY_RING}/cryptoKeys/ArtifactRegistry-${_REGION}" \
           --memory="${_MEMORY}" \
           --cpu="${_CPU}" \
           --min-instances="${_MIN_INSTANCES}" \
