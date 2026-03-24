@@ -193,15 +193,19 @@ steps:
     args:
       - "-c"
       - |
-        # Resolve the target project: use DEPLOY_PROJECT if set, else PROJECT_ID
-        _TARGET_PROJECT="${_DEPLOY_PROJECT}"
-        if [[ -z "$_TARGET_PROJECT" ]]; then
-          _TARGET_PROJECT="$PROJECT_ID"
+        # Resolve the target project: use DEPLOY_PROJECT if set, else PROJECT_ID.
+        # $$ escapes bash-local vars so Cloud Build's substitution engine never
+        # scans them — Cloud Build converts $$ → $ before passing to bash.
+        # DEPLOY_PROJECT and PROJECT_ID are set in the env: block above, where
+        # Cloud Build substitution (${_DEPLOY_PROJECT} / $PROJECT_ID) is correct.
+        TARGET_PROJECT="$$DEPLOY_PROJECT"
+        if [[ -z "$$TARGET_PROJECT" ]]; then
+          TARGET_PROJECT="$$PROJECT_ID"
         fi
 
         gcloud run deploy "cfn-${_ENV}-${_NAME}" \
           --image="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/cfn-${_ENV}-${_NAME}:$SHORT_SHA" \
-          --project="$_TARGET_PROJECT" \
+          --project="$$TARGET_PROJECT" \
           --region="${_REGION}" \
           --service-account="${_RUNTIME_SA}" \
           --memory="${_MEMORY}" \
