@@ -1,0 +1,25 @@
+# =============================================================================
+# .trivyignore — Trivy vulnerability suppression list
+# =============================================================================
+# Add CVE IDs (one per line) below to suppress specific findings that have
+# been reviewed, accepted, or are not applicable to this project.
+#
+# Format:
+#   CVE-YYYY-NNNNN          # plain CVE suppression
+#   CVE-YYYY-NNNNN exp:2026-12-31  # suppression with an expiry date
+#
+# Guidelines:
+#   - Always add a comment explaining WHY a finding is suppressed.
+#   - Use expiry dates (exp:YYYY-MM-DD) wherever possible so suppressions are
+#     revisited automatically when the date passes.
+#   - Remove entries once the upstream package ships a fix and you have
+#     upgraded to it.
+#   - Never suppress CRITICAL findings without documented approval.
+#
+# Severity thresholds scanned in the pipeline: HIGH, CRITICAL
+# =============================================================================
+
+# Example entries (remove or replace with real findings):
+#
+# CVE-2023-12345   # false-positive in test dependency; not reachable in prod
+# CVE-2022-98765 exp:2026-06-30  # vendor fix pending; reviewed 2026-03-24

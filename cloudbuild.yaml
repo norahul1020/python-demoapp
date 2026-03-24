@@ -103,7 +103,59 @@ steps:
       - "."
 
   # ---------------------------------------------------------------------------
-  # Step 2 — Push both tags to Artifact Registry
+  # Step 2 — Scan repository filesystem for vulnerabilities (Trivy)
+  # Scans all source files, dependencies and config files in the workspace.
+  # Fails the build (exit-code 1) on any HIGH or CRITICAL finding.
+  # Add CVE IDs to .trivyignore at the repo root to suppress known / accepted
+  # findings so they do not block the pipeline.
+  # ---------------------------------------------------------------------------
+  - id: "scan-repo"
+    name: "aquasec/trivy:latest"
+    args:
+      - "fs"
+      - "--exit-code=1"
+      - "--severity=HIGH,CRITICAL"
+      - "--ignorefile=.trivyignore"
+      - "--no-progress"
+      - "--format=table"
+      - "."
+    waitFor:
+      - "build"
+
+  # ---------------------------------------------------------------------------
+  # Step 3 — Scan the built Docker image for OS & library vulnerabilities
+  # Runs Trivy inside a sibling container that shares the Docker socket so it
+  # can inspect the locally-cached image without an extra push/pull round-trip.
+  # The workspace directory is mounted read-only so that .trivyignore is
+  # available to Trivy inside the container.
+  # Fails the build (exit-code 1) on any HIGH or CRITICAL finding.
+  # ---------------------------------------------------------------------------
+  - id: "scan-image"
+    name: "gcr.io/cloud-builders/docker"
+    entrypoint: "sh"
+    env:
+      - "PROJECT_ID=$PROJECT_ID"
+    args:
+      - "-c"
+      - |
+        docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          -v /workspace:/workspace:ro \
+          -w /workspace \
+          aquasec/trivy:latest \
+          image \
+          --exit-code=1 \
+          --severity=HIGH,CRITICAL \
+          --ignorefile=.trivyignore \
+          --no-progress \
+          --format=table \
+          "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/cfn-${_ENV}-${_NAME}:$SHORT_SHA"
+    waitFor:
+      - "build"
+
+  # ---------------------------------------------------------------------------
+  # Step 4 — Push both tags to Artifact Registry
+  # Only runs after BOTH Trivy scans pass — no vulnerable image is ever pushed.
   # ---------------------------------------------------------------------------
   - id: "push"
     name: "gcr.io/cloud-builders/docker"
@@ -114,10 +166,11 @@ steps:
       - "--all-tags"
       - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/cfn-${_ENV}-${_NAME}"
     waitFor:
-      - "build"
+      - "scan-repo"
+      - "scan-image"
 
   # ---------------------------------------------------------------------------
-  # Step 3 — Deploy to Cloud Run
+  # Step 5 — Deploy to Cloud Run
   #
   # Changes from the original template:
   #   - --ingress=internal  (replaces the invalid --ingress-settings=internal-only)
@@ -154,7 +207,8 @@ steps:
           --cpu="${_CPU}" \
           --min-instances="${_MIN_INSTANCES}" \
           --max-instances="${_MAX_INSTANCES}" \
-          --concurrency="${_CONCURRENCY}"
+          --concurrency="${_CONCURRENCY}" \
+          --port=5000
     waitFor:
       - "push"
 
