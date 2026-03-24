@@ -47,7 +47,7 @@ substitutions:
   _REGION: "us-west1"
 
   # Artifact Registry repository name (the repo, not the full hostname)
-  _AR_REPO: "docker-repo"
+  _AR_REPO: "python-test-repo-by-hemant"
 
   # Cloud Run runtime service account (full email).
   # Replace the placeholder with the actual service account for your project.
