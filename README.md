@@ -108,4 +108,4 @@ make deploy
 
 ## Running in Azure App Service (Windows)
 
-Just don't, it's awful, testing
+Just don't, it's awful, testing it!!
